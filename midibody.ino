@@ -1,34 +1,57 @@
+/* ================================================================================
+This code is placed under the MIT license
+Copyright (c) 2014 Fabien Felix
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+=================================================================================*/
 
 #include <math.h>                              
 #include <Wire.h> 
 #include <LiquidCrystal_I2C.h>
+#include <EEPROM.h>
+#include <avr/eeprom.h>
+
+#include "utilities.h"
 
 #include "I2Cdev.h"
 #include "MPU6050.h"
-
 #include <Stdio.h>
 
 //Arduino Leonardo: connect SDA to digital pin 2 and SCL to digital pin 3 on your Arduino.
-
 #if defined(ARDUINO) && ARDUINO >= 100
 #define printByte(args)  write(args);
 #else
 #define printByte(args)  print(args,BYTE);
 #endif
 
-LiquidCrystal_I2C lcd(0x20,16,2);  // set the LCD address to 0x27 for a 16 chars and 2 line display
+//LiquidCrystal_I2C lcd(0x20,16,2);  // set the LCD address to 0x27 for a 16 chars and 2 line display
 
-// class default I2C address is 0x68
-// specific I2C addresses may be passed as a parameter here
-// AD0 low = 0x68 (default for InvenSense evaluation board)
-// AD0 high = 0x69
 
 //*** MODES *****
-int fModeIR =0;
+int fModeIR =1;
 int fModeMotion = 1;
 int fModeDirection = 0;
 
-
+// for MPU 9150, class default I2C address is 0x68
+// specific I2C addresses may be passed as a parameter below when declaring the MPU6050 object
+// AD0 low = 0x68 (default for InvenSense evaluation board)
+// AD0 high = 0x69
 MPU6050 accelgyro;
 
 int16_t ax, ay, az,axDelta,ayDelta,azDelta;
@@ -50,7 +73,7 @@ int c=0,cMD=0,cResetMD=0;
 
 //#define DO   30
 
-#define DO   36
+#define DO   36 // also C1 in US notation
 #define DOd  37
 #define RE   38
 #define REd  39
@@ -64,13 +87,16 @@ int c=0,cMD=0,cResetMD=0;
 #define LAd  46
 #define SIb  46
 #define SI   47
-#define DO_HIGH 48
+#define DO_HIGH 48 // C2
 
 #define countChords 5 //=> change if you add chords
 
 int vNote= RE; // default note for snare
 
-  int chordsMajor[][5]={
+//int notesNames[]={"C","C#",  "D","D#",  "E","F","F#",   "G","G#",    "A","A#",  "B"};
+char * aNotesNames[]={"DO","DO#","RE","RE#","MI","FA","FA#","SOL","SOL#","LA","LA#","SI"};
+
+int chordsMajor[][5]={
 {DO,MI,SOL,DO-24,DO-12},
 {DO,FA,LA,FA-24,FA-12},
 {SOL,SI,RE,SOL-24,SOL-12},
@@ -78,44 +104,26 @@ int vNote= RE; // default note for snare
 {RE,SOL,LAd,LAd-24,LAd-12},
 };
 
-//******************************
-// les variables du programme
-
-int led = 13;
-
 #define SensorDirection_pin1  10
 #define SensorDirection_pin2  11
 
+//******************************
+// Program variables
 
+int led = 13;
 int i=0;
-char a[17]; // pour stocker le texte à afficher sur le LCD
+char a[17]; // temp var to store text to display on Lc => dont use more than 16 chars!!
 int note=0;
 int currentNote=-1;
 int distance=0;
 int currentDistance = -1;
-int midiMode;
+
 int midiChannelDrum=10; // drums
 
 int iControler = 0;
 int controler;
-
-#define cControler 3
-char* TabControlerLabel[]= {"Filter Frequency", "Filter Reso.", "Volume"};
-int TabControler[]={74,42,7};
-
 int iMotionMode=0;
 int motionMode;
-
-#define MOTION_MODE_0  0
-#define MOTION_MODE_1  1
-
-#define cMotionMode 2
-char* TabMotionModeLabel[]= {"Motion Mode 0", "Motion Mode 1"};
-int TabMotionMode[]={MOTION_MODE_0, MOTION_MODE_1};
-// for string conversion, if you can't just do e.g. dir.toString():
-char * azimuthHeadings[] = { "E", "NE", "N", "NW", "W", "SW", "S", "SE" };
-
-
 unsigned long timerButtons;                               // create a time variable
 unsigned long timerMotion;
 unsigned long timerLastDrum=0;
@@ -135,56 +143,21 @@ boolean fVertical=false;
 
 int16_t lastAzMin=0;
 
-//******************************
-// fonction pour afficher un texte sur la 2eme ligne du LCD (pour debugger)
-void displayL1(char* t)
+#define MOTION_MODE_0  0
+#define MOTION_MODE_1  1
+
+#define cMotionMode 2
+char* TabMotionModeLabel[]= {"Motion Mode 0", "Motion Mode 1"};
+int TabMotionMode[]={MOTION_MODE_0, MOTION_MODE_1};
+// for string conversion, if you can't just do e.g. dir.toString():
+char * azimuthHeadings[] = { "E", "NE", "N", "NW", "W", "SW", "S", "SE" };
+
+struct config_t
 {
- char a[17];
- int l,i;
- 
- for (l=0; l<16; l++) {if (t[l]==0) break; a[l]=t[l];}
- for (i=l; i<16; i++) a[i]=' ';
- a[16]=0;
- lcd.setCursor(0, 0); // curseur sur colonne 0 et ligne 0 (0=ligne haute, 1 =ligne basse)
- lcd.print(a); // affiche texte
-}
-
-//******************************
-// fonction pour afficher un texte sur la 2eme ligne du LCD (pour debugger)
-void displayL2(char* t)
-{
- char a[17];
- int l,i;
- 
- for (l=0; l<16; l++) {if (t[l]==0) break; a[l]=t[l];}
- for (i=l; i<16; i++) a[i]=' ';
- a[16]=0;
- lcd.setCursor(0, 1); // curseur sur colonne 0 et ligne 1 (0=ligne haute, 1 =ligne basse)
- lcd.print(a); // affiche texte
- }
-
-//******************************
-const int key_S1_5 = 7; // pind de la mesure des boutons 1 a 5
-
-int boutons_check(){
-// Cette fonction vérifie les boutons et retourne
-// 0 si pas de bouton appuyé ou sinon 1 à 5 suivant S1...S5
-// Priorités : S1, S2, S3, S4, S5
-
-int w = analogRead(key_S1_5);
-
-#define vS1 0
-#define vS2 130
-#define vS3 306
-#define vS4 478
-#define vS5 720
-if ( w < vS2/2 ) return 1;
-if ( w < (vS3+vS2)/2 ) return 2;
-if ( w < (vS4+vS3)/2 ) return 3;
-if ( w < (vS5+vS4)/2 ) return 4;
-if ( w < (1024+vS5)/2 ) return 5;
-return 0;
-}
+char signature; // we store value 0xAA to check if we read a valid config...
+char midiMode;
+int midiControler; // max 127
+} conf;
 
 //*********************
 void calibrate()
@@ -253,26 +226,20 @@ void initializeMotionSensor()
 
 //**************************************
 void setup()
+//**************************************
 {
-  lcd.init();                      // initialize the lcd 
-  lcd.backlight();
-  lcd.home();
-  lcd.print("MIDI Body V1");
+initLcd();
+displayL1("MIDI Body V1");
 
-  pinMode(led, OUTPUT);
-  pinMode(SensorDirection_pin1, INPUT);
-  pinMode(SensorDirection_pin2, INPUT);
+pinMode(led, OUTPUT);
+pinMode(SensorDirection_pin1, INPUT);
+pinMode(SensorDirection_pin2, INPUT);
 
- Serial.begin(31250); // supprimer pour ne pas faire de midi
-
- midiMode= MIDI_MODE_CHORDS;
- motionMode = TabMotionMode[MOTION_MODE_0];
- 
-// displayL1("Play Chords");
-
- initializeMotionSensor();
- delay(1000);
- displayL1("MidiBody V1");
+Serial.begin(31250); // midi port speed is 31250
+loadConfig();
+initializeMotionSensor();
+displayL1("Ready"); displayL2("Move your body!");
+delay(1000); // just to let time to show the welco,e text before it is overwritten
 }
 
 
@@ -284,8 +251,8 @@ void actionBoutonMotionMode (int bouton)
  {
   if (bouton ==1) 
    {
-     midiMode= MIDI_MODE_NOTE;
-     displayL1("Play Notes");
+     //midiMode= MIDI_MODE_NOTE;
+     //displayL1("Play Notes");
    }
   else if (bouton == 2) 
    {
@@ -314,6 +281,7 @@ void actionBoutonMotionMode (int bouton)
 
 //********************************
 // si on veut que les boutons commandent la pince
+/*
 void actionBouton (int bouton)
 {
  if ( bouton >0 ) 
@@ -323,17 +291,17 @@ void actionBouton (int bouton)
   // un bouton est appuyé
   if (bouton ==1) 
    {
-     midiMode= MIDI_MODE_NOTE;
+//     midiMode= MIDI_MODE_NOTE;
      displayL1("Play Notes");
    }
   else if (bouton == 2) 
    {
-     midiMode= MIDI_MODE_CHORDS;
+  //   midiMode= MIDI_MODE_CHORDS;
      displayL1("Play Chords");
    }
   else if (bouton == 3) 
    {
-     midiMode= MIDI_MODE_EX;
+    // midiMode= MIDI_MODE_EX;
      displayL1("MIDI Exclusive");
    }
   else if (bouton == 4)
@@ -341,7 +309,7 @@ void actionBouton (int bouton)
     if (iControler<cControler-1) iControler++;
     else iControler = 0;
     sprintf(a,"%s", TabControlerLabel[iControler]); 
-    controler = TabControler[iControler];
+    conf.midiControler = TabControler[iControler];
     displayL1(a);
    }
   else if (bouton == 5)
@@ -356,29 +324,111 @@ void actionBouton (int bouton)
 
  } 
 }
+*/
 
-//*********************************
-void midiNoteOn(int c, int pitch, int velocity) {
-  Serial.write(0x90-1+c); // Note on: hexa 9n  n= midi channel
-  Serial.write(pitch);
-  Serial.write(velocity);
+int iSetupMode = -1;
+int iParam=-1;
+// list of menu level 1
+#define setupMode_NotesMode 0
+#define setupMode_MotionSensor 1
+#define setupMode_MidiCtrl 2
+#define setupMode_QuitSetup 3 // should always be the last index
+
+// labels for menu level 1
+char *label_SetupMode[]={"Notes mode","Motion Sensor", "Midi controler","Exit Config Mode"};
+char *label_NotesModeParams[]={"Single Note","Chords"};
+#define cParam_NotesMode 2
+
+#define cMidiControler 3
+char* label_MidiControler[]= {"Ctrl Filter Freq", "Ctrl Filter Reso", "Ctrl Volume"};
+int TabControler[]={74,42,7};
+
+//********************************
+// To handle the config menu
+void actionBoutonSetup (int bouton)
+{
+ if ( bouton >0 ) 
+ {
+  if (bouton == 1) // Setup Level 1 Menu selection
+   {
+    if (iSetupMode!=-1) // we are already in the setup mode
+     {       iSetupMode++; if (iSetupMode>setupMode_QuitSetup) iSetupMode = 0;     }
+    else iSetupMode = 0;
+    displayL1(label_SetupMode[iSetupMode]);
+    displayL2("Change param: S2");
+    iParam=-1;
+   }
+
+  else if (bouton == 2) // Setup Level 2 Menu selection
+   {
+     if (iSetupMode == setupMode_QuitSetup)
+      {
+       iSetupMode = -1;
+       saveConfig();
+       displayL1("Saving Config...");displayL2("");delay(1000);displayL1("");
+      }
+      
+     else if (iSetupMode == setupMode_NotesMode) // select 
+      {
+       if (iParam!=-1) {iParam++ ; if (iParam>=cParam_NotesMode) iParam = 0; } else iParam = 0;
+       sprintf(a,"%s",label_NotesModeParams[iParam]); displayL2(a);
+       switch (iParam) {
+        case 0: conf.midiMode= MIDI_MODE_NOTE; break;
+        case 1: conf.midiMode= MIDI_MODE_CHORDS; break;
+        }
+      }
+      
+     else if (iSetupMode == setupMode_MidiCtrl) // select midi controller number
+      {
+       if (iParam!=-1) {iParam++ ; if (iParam>=cMidiControler) iParam = 0; } else iParam = 0;
+       sprintf(a,"%s",label_MidiControler[iParam]); displayL2(a);
+       conf.midiControler=iParam;
+      }
+
+   }
+   
+ }
 }
 
 //*********************************
-void midiNoteOff(int c, int pitch, int velocity) {
-  Serial.write(0x80-1+c); // note off: hexa 8n
-  Serial.write(pitch);
-  Serial.write(velocity);
+void saveConfig()
+{
+//EEPROM_writeAnything(0, conf);
+eeprom_write_block((const void*)&conf, (void*)0, sizeof(conf));
 }
 
 //*********************************
-void playNote(int cmd, int pitch, int velocity) {
-  Serial.write(cmd);
-  Serial.write(pitch);
-  Serial.write(velocity);
+void loadConfig()
+{
+int v;
+// EEPROM_readAnything(0, conf);
+
+eeprom_read_block((void*)&conf, (void*)0, sizeof(conf));
+
+ if (conf.signature !=99)
+  {
+   displayL1("No config found..."); displayL2("Default Config"); delay(1000);
+   setDefaultConfig();
+   saveConfig();
+   // need to set defaults here
+  }
+ else // the EEPROM contains a valid config
+  {
+    controler= TabControler[conf.midiControler];
+   sprintf(a,"Notes:%s",label_NotesModeParams[conf.midiMode]); displayL2(a); delay(1000);
+   sprintf(a,"%s",label_MidiControler[conf.midiControler]); displayL2(a); delay(1000);
+  }
 }
 
+//*********************************
+void setDefaultConfig()
+{
+    conf.signature=99;
+  conf.midiMode = MIDI_MODE_NOTE;
+  conf.midiControler=0; // Filter Frequency
+}
 
+ 
 //*********************************
 void playChord(int cmd, int pitch, int velocity) {
   int shift;
@@ -395,18 +445,6 @@ if (pitch >= countChords) return;
   Serial.write(cmd);  Serial.write(chordsMajor[pitch][3]+shift);  Serial.write(velocity);
   Serial.write(cmd);  Serial.write(chordsMajor[pitch][4]+shift);  Serial.write(velocity);
   
-}
-
-//********************************
-void midiControler(int i)
-{
-// midi controls: Bn , Number, Value (0-127) 
-
-if (i>127) i=127;
-
-  Serial.write(0xB0);
-  Serial.write(controler);
-  Serial.write(i);
 }
 
 
@@ -658,6 +696,7 @@ void loop()
 {
 char a[32];
 int v,cm;
+int codeNote,octave;
 
 //*******************************************
 // test si un bouton est appuyé et decide quoi faire en conséquence
@@ -665,12 +704,13 @@ int v,cm;
    {                          
     timerButtons = millis();                              // get the current time of programme
    
-     int bouton = boutons_check();
-     if (fModeMotion) actionBoutonMotionMode(bouton);
-     else actionBouton(bouton);
+     int bouton = isButtonPressed();
+     actionBoutonSetup(bouton);
+     //if (fModeMotion) actionBoutonMotionMode(bouton);
+     //else actionBouton(bouton);
     }
  
- if((fModeMotion||fModeDirection) && (millis()-timerMotion>=5)) 
+ if((fModeMotion||fModeDirection) && (millis()-timerMotion>=5)) //==>>>> should we keep this timer???????????????????????
    {                          
     if (fModeMotion) actionMotion();
     if (fModeDirection) actionDirection();
@@ -682,7 +722,7 @@ int v,cm;
  // measure interval
   if(fModeIR && ((millis() - irTimer > 50) ))
    {
-     int gMajeur[]={30,32,34,35,37,39,41, 42,44,46,47,49,51,53, 54,56,58,59,61,63,65, 66,68,70,71,73,75,77, 78,80,82,83,85,87,89, 90,92,94,95,97,99,101, 30,32,33,35,37,40, 42,44,45,47,49,52, 54};
+    int gMajeur[]={DO,RE,MI,FA,SOL,LA,SI,DO+12,RE+12,MI+12,FA+12,SOL+12,LA+12,SI+12,DO+24,RE+24,MI+24,FA+24,SOL+24,LA+24,SI+24,DO+36,RE+36,MI+36,FA+36,SOL+36,LA+36,SI+36,DO+48,RE+48,MI+48,FA+48,SOL+48,LA+48,SI+48,DO+60,RE+60,MI+60,FA+60,SOL+60,LA+60,SI+60};
     
     irTimer = millis();
     float val=analogRead(0);                      // Read ir distance sensor data
@@ -692,38 +732,40 @@ int v,cm;
       {
        cm = distance;
        distance=distance -6; // zero for minimum distance of the cqpteru (usually 6 cm)
-       distance = distance /3;
+       distance = distance /4;
        
        if (distance != currentDistance) // we play new note or chord
         {
          currentDistance=distance;
          
-         if (midiMode == MIDI_MODE_NOTE) 
+         if (conf.midiMode == MIDI_MODE_NOTE) 
           {
            if (currentNote != -1) playNote(0x90,currentNote,0);  // stop note avec velocité zero
-           currentNote = gMajeur[distance];         
-           sprintf(a,"pos:%d,note:%d", distance,currentNote); 
+           currentNote = gMajeur[distance];
+           codeNote= currentNote%12;
+           octave= currentNote/12-1;
+           sprintf(a,"cm:%d,n:%d %s%d", distance,currentNote,aNotesNames[codeNote],octave); 
            displayL2(a);
            playNote(0x90,currentNote,0x45);
-         delay (100);
+         //delay (100);
           }      
           
-         else if (midiMode == MIDI_MODE_CHORDS) // mode chords
+         else if (conf.midiMode == MIDI_MODE_CHORDS) // mode chords
           {
            if (currentNote !=0) playChord(0x90,currentNote,0); 
            currentNote = distance;
            playChord(0x90,currentNote,0x45);              
-           sprintf(a,"pos:%d,ChordIdx:%d", distance,currentNote); 
+           sprintf(a,"pos:%d,ChordId:%d", distance,currentNote); 
            displayL2(a);
-           delay (100);
+           //delay (100);
           }
           
-         else if (midiMode == MIDI_MODE_EX) // mode MIDI Exclusive to control filter, volume, etc...
+         else if (conf.midiMode == MIDI_MODE_EX) // mode MIDI Exclusive to control filter, volume, etc...
           {
             cm-=6;
             v = cm*2;
             if (v>127) v=127;
-            midiControler(v);
+            midiControler(v,controler);
            sprintf(a,"pos:%d,V:%d", cm,v); 
            displayL2(a);
           }
@@ -735,8 +777,8 @@ int v,cm;
       {
        if (currentNote != -1) 
         {
-          if (midiMode == MIDI_MODE_NOTE) playNote(0x80,currentNote,0); // stop note avec velocité zero
-          else if (midiMode == MIDI_MODE_CHORDS) playChord(0x80,currentNote,0x0);
+          if (conf.midiMode == MIDI_MODE_NOTE) playNote(0x80,currentNote,0); // stop note avec velocité zero
+          else if (conf.midiMode == MIDI_MODE_CHORDS) playChord(0x80,currentNote,0x0);
           
           currentNote=-1;
           currentDistance = -1;
