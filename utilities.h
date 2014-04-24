@@ -1,20 +1,3 @@
-
-
-/*
-extern LiquidCrystal_I2C lcd();  // set the LCD address to 0x27 for a 16 chars and 2 line display
-
-//declaration of functions created in utilities.cpp
-
-extern void displayL1(char *); 
-extern void displayL2(char *);  
-extern void initLcd();
-extern int isButtonPressed();
-extern void midiNoteOn(int c, int pitch, int velocity);
-extern void midiNoteOff(int c, int pitch, int velocity);
-extern void playNote(int cmd, int pitch, int velocity);
-extern void midiControler(int i,int control);
-*/
-
 /* utilities functions */
 
 #include <Wire.h> 
@@ -28,9 +11,7 @@ LiquidCrystal_I2C lcd(0x20,16,2);  // set the LCD address to 0x27 for a 16 chars
 // this function must be added into SETUP function of the main program
 void initLcd()
 {
-  lcd.init();
-  lcd.backlight();
-  lcd.home();
+  lcd.init();  lcd.backlight();  lcd.home();
 }
 
 //******************************
@@ -45,7 +26,6 @@ void displayL1(char* t)
  for (l=0; l<16; l++) {if (t[l]==0) break; a[l]=t[l];}
  for (i=l; i<16; i++) a[i]=' ';
  a[16]=0;
- 
  lcd.setCursor(0, 0); // cursor on line 0 et column 0
  lcd.print(a); 
 }
@@ -62,7 +42,7 @@ void displayL2(char* t)
  for (i=l; i<16; i++) a[i]=' ';
  a[16]=0;
  lcd.setCursor(0, 1); // curseur sur colonne 0 et ligne 1 (0=ligne haute, 1 =ligne basse)
- lcd.print(a); // affiche texte
+ lcd.print(a);
  }
  
 //******************************
