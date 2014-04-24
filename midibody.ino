@@ -67,9 +67,6 @@ char previousFB=0;
 int cNotes=0;
 int c=0,cMD=0,cResetMD=0;
 
-#define MIDI_MODE_NOTE 0
-#define MIDI_MODE_CHORDS 1
-#define MIDI_MODE_EX 2
 
 //#define DO   30
 
@@ -107,16 +104,25 @@ int chordsMajor[][5]={
 #define SensorDirection_pin1  10
 #define SensorDirection_pin2  11
 
+#define cMaxSensors 2
+
 //******************************
 // Program variables
 
 int led = 13;
 int i=0;
 char a[17]; // temp var to store text to display on Lc => dont use more than 16 chars!!
-int note=0;
-int currentNote=-1;
-int distance=0;
-int currentDistance = -1;
+//int note=0;
+
+struct config_t
+{
+char signature; // we store value 0xAA to check if we read a valid config...
+char midiMode[cMaxSensors];
+int midiControler[cMaxSensors]; // max 127
+} conf;
+
+unsigned int currentDistance[cMaxSensors] = {-1,-1};
+unsigned int currentNote[cMaxSensors]={-1,-1};
 
 int midiChannelDrum=10; // drums
 
@@ -152,12 +158,6 @@ int TabMotionMode[]={MOTION_MODE_0, MOTION_MODE_1};
 // for string conversion, if you can't just do e.g. dir.toString():
 char * azimuthHeadings[] = { "E", "NE", "N", "NW", "W", "SW", "S", "SE" };
 
-struct config_t
-{
-char signature; // we store value 0xAA to check if we read a valid config...
-char midiMode;
-int midiControler; // max 127
-} conf;
 
 //*********************
 void calibrate()
@@ -274,74 +274,36 @@ void actionBoutonMotionMode (int bouton)
    {
     sprintf(a,"Note=%d",--vNote); displayL2(a);
    }
-   
-
- } 
+  } 
 }
 
-//********************************
-// si on veut que les boutons commandent la pince
-/*
-void actionBouton (int bouton)
-{
- if ( bouton >0 ) 
- {
-//   sprintf(a,"Bouton %d", bouton);
-//   displayL1(a);
-  // un bouton est appuyé
-  if (bouton ==1) 
-   {
-//     midiMode= MIDI_MODE_NOTE;
-     displayL1("Play Notes");
-   }
-  else if (bouton == 2) 
-   {
-  //   midiMode= MIDI_MODE_CHORDS;
-     displayL1("Play Chords");
-   }
-  else if (bouton == 3) 
-   {
-    // midiMode= MIDI_MODE_EX;
-     displayL1("MIDI Exclusive");
-   }
-  else if (bouton == 4)
-   {
-    if (iControler<cControler-1) iControler++;
-    else iControler = 0;
-    sprintf(a,"%s", TabControlerLabel[iControler]); 
-    conf.midiControler = TabControler[iControler];
-    displayL1(a);
-   }
-  else if (bouton == 5)
-   {
-    if (iMotionMode<cMotionMode-1) iMotionMode++;
-    else iMotionMode = 0;
-    sprintf(a,"%s", TabMotionModeLabel[iMotionMode]); 
-    motionMode = TabMotionMode[iMotionMode];
-    displayL1(a);
-   }
-   
-
- } 
-}
-*/
 
 int iSetupMode = -1;
 int iParam=-1;
 // list of menu level 1
-#define setupMode_NotesMode 0
-#define setupMode_MotionSensor 1
-#define setupMode_MidiCtrl 2
+#define setupMode_Sensor1Mode 0
+#define setupMode_Sensor2Mode 1
+#define setupMode_MotionSensor 2
 #define setupMode_QuitSetup 3 // should always be the last index
 
-// labels for menu level 1
-char *label_SetupMode[]={"Notes mode","Motion Sensor", "Midi controler","Exit Config Mode"};
-char *label_NotesModeParams[]={"Single Note","Chords"};
-#define cParam_NotesMode 2
 
-#define cMidiControler 3
-char* label_MidiControler[]= {"Ctrl Filter Freq", "Ctrl Filter Reso", "Ctrl Volume"};
-int TabControler[]={74,42,7};
+
+// labels for menu level 1
+#define cParam_DistSensorMode 5 //=> put alays the same amount as values in the array below
+
+char *label_SetupMode[]={"Sensor 1 mode","Sensor 2 mode","Motion Sensor", "Exit Config Mode"};
+char *label_DistSensorModeParams[]={"Single Note","Chords","Ctrl Filter Freq", "Ctrl Filter Reso", "Ctrl Volume"};
+int TabControler[]={0,0,74,42,7}; //=> CAREFUL: the list mus be synched with the label_DistSensorModeParams. We put 2 zeros first to simplify the management of indexes
+
+#define MIDI_MODE_NOTE 0
+#define MIDI_MODE_CHORDS 1
+#define MIDI_MODE_EX_CTRL_FILTER 2
+#define MIDI_MODE_EX_CTRL_RES 3
+#define MIDI_MODE_EX_CTRL_VOL 4
+
+//#define cMidiControler 3
+//char* label_MidiControler[]= {"Ctrl Filter Freq", "Ctrl Filter Reso", "Ctrl Volume"};
+
 
 //********************************
 // To handle the config menu
@@ -355,7 +317,7 @@ void actionBoutonSetup (int bouton)
      {       iSetupMode++; if (iSetupMode>setupMode_QuitSetup) iSetupMode = 0;     }
     else iSetupMode = 0;
     displayL1(label_SetupMode[iSetupMode]);
-    displayL2("Change param: S2");
+    displayL2("Change param=>S2");
     iParam=-1;
    }
 
@@ -364,48 +326,67 @@ void actionBoutonSetup (int bouton)
      if (iSetupMode == setupMode_QuitSetup)
       {
        iSetupMode = -1;
+       displayL1("Saving Config...");displayL2("");
        saveConfig();
-       displayL1("Saving Config...");displayL2("");delay(1000);displayL1("");
+       //loadConfig();
+       delay(1000);displayL1("Ready");
       }
       
-     else if (iSetupMode == setupMode_NotesMode) // select 
+     else if (iSetupMode == setupMode_Sensor1Mode) // select 
       {
-       if (iParam!=-1) {iParam++ ; if (iParam>=cParam_NotesMode) iParam = 0; } else iParam = 0;
-       sprintf(a,"%s",label_NotesModeParams[iParam]); displayL2(a);
-       switch (iParam) {
-        case 0: conf.midiMode= MIDI_MODE_NOTE; break;
-        case 1: conf.midiMode= MIDI_MODE_CHORDS; break;
-        }
+       if (iParam!=-1) {iParam++ ; if (iParam>=cParam_DistSensorMode) iParam = 0; } else iParam = 0;
+       sprintf(a,"%s",label_DistSensorModeParams[iParam]); displayL2(a);
+       conf.midiMode[0]=iParam;
+/*       switch (iParam) {
+        case 0: conf.midiMode[0]= MIDI_MODE_NOTE; break;
+        case 1: conf.midiMode[0]= MIDI_MODE_CHORDS; break;
+        case 2: case 3: case 4:
+         conf.midiMode[0]= MIDI_MODE_EX;
+         conf.midiControler[0] = iParam-2; 
+         
+        break; //=> warning: by changing the order of the labels for the motion mode it breaks this index compuutation... not a nice code here 
+        }*/
+        
       }
-      
-     else if (iSetupMode == setupMode_MidiCtrl) // select midi controller number
+
+     else if (iSetupMode == setupMode_Sensor2Mode) // select 
+      {
+       if (iParam!=-1) {iParam++ ; if (iParam>=cParam_DistSensorMode) iParam = 0; } else iParam = 0;
+       sprintf(a,"%s",label_DistSensorModeParams[iParam]); displayL2(a);
+       conf.midiMode[1]=iParam;
+/*       switch (iParam) {
+        case 0: conf.midiMode[1]= MIDI_MODE_NOTE; break;
+        case 1: conf.midiMode[1]= MIDI_MODE_CHORDS; break;
+        case 2: case 3: case 4:
+         conf.midiMode[0]= MIDI_MODE_EX;
+         conf.midiControler[1] = iParam-2; 
+        break; //=> warning: by changing the order of the labels for the motion mode it breaks this index compuutation... not a nice code here        
+        }*/
+        
+      }      
+
+/*     else if (iSetupMode == setupMode_MidiCtrl) // select midi controller number
       {
        if (iParam!=-1) {iParam++ ; if (iParam>=cMidiControler) iParam = 0; } else iParam = 0;
        sprintf(a,"%s",label_MidiControler[iParam]); displayL2(a);
-       conf.midiControler=iParam;
-      }
-
-   }
-   
+       conf.midiControler[0]=iParam;
+      }*/
+   }  
  }
 }
 
 //*********************************
 void saveConfig()
 {
-//EEPROM_writeAnything(0, conf);
 eeprom_write_block((const void*)&conf, (void*)0, sizeof(conf));
 }
 
 //*********************************
 void loadConfig()
 {
-int v;
-// EEPROM_readAnything(0, conf);
-
 eeprom_read_block((void*)&conf, (void*)0, sizeof(conf));
 
- if (conf.signature !=99)
+ if (conf.signature !=91)
   {
    displayL1("No config found..."); displayL2("Default Config"); delay(1000);
    setDefaultConfig();
@@ -414,18 +395,26 @@ eeprom_read_block((void*)&conf, (void*)0, sizeof(conf));
   }
  else // the EEPROM contains a valid config
   {
-    controler= TabControler[conf.midiControler];
-   sprintf(a,"Notes:%s",label_NotesModeParams[conf.midiMode]); displayL2(a); delay(1000);
-   sprintf(a,"%s",label_MidiControler[conf.midiControler]); displayL2(a); delay(1000);
+    displayL1("Dist sensor 1:");
+    displayL2(label_DistSensorModeParams[conf.midiMode[0]]); delay(1000);
+    
+    displayL1("Dist sensor 2:");
+    displayL2(label_DistSensorModeParams[conf.midiMode[1]]); delay(1000);
+
+//    controler= TabControler[conf.midiControler[0]];// in the conf we dont store the value but the index
+//   sprintf(a,"Sensor1:%s",label_NotesModeParams[conf.midiMode[0]]); displayL2(a); delay(1000);
+//   sprintf(a,"%s",label_MidiControler[conf.midiControler[0]]); displayL2(a); delay(1000);
   }
 }
 
 //*********************************
 void setDefaultConfig()
 {
-    conf.signature=99;
-  conf.midiMode = MIDI_MODE_NOTE;
-  conf.midiControler=0; // Filter Frequency
+  conf.signature=91;
+  conf.midiMode[0] = MIDI_MODE_NOTE;
+  conf.midiMode[1] = MIDI_MODE_EX_CTRL_FILTER;
+//  conf.midiControler[0]=0; // useless variable
+//  conf.midiControler[1]=0; // useless variable
 }
 
  
@@ -691,6 +680,77 @@ displayL2(b);
 
 
 //********************************
+void sensorDistance(int sensorId)
+{
+int v,cm;
+int codeNote,octave;
+int distance;
+int gMajeur[]={DO,RE,MI,FA,SOL,LA,SI,DO+12,RE+12,MI+12,FA+12,SOL+12,LA+12,SI+12,DO+24,RE+24,MI+24,FA+24,SOL+24,LA+24,SI+24,DO+36,RE+36,MI+36,FA+36,SOL+36,LA+36,SI+36,DO+48,RE+48,MI+48,FA+48,SOL+48,LA+48,SI+48,DO+60,RE+60,MI+60,FA+60,SOL+60,LA+60,SI+60};
+
+  float val=analogRead(sensorId);                      // Read ir distance sensor data. on analog pin zero or one
+
+    distance=6787.0 /(val - 3.0) - 4.0;     // Convert to the distance - cm
+    
+      if (distance < 90)
+      {
+       cm = distance;
+       distance=distance -6; // zero for minimum distance of the cqpteru (usually 6 cm)
+       distance = distance /4;
+       
+       if (distance != currentDistance[sensorId]) // we play new note or chord
+        {
+         currentDistance[sensorId]=distance;
+         
+         if (conf.midiMode[sensorId] == MIDI_MODE_NOTE) 
+          {
+           if (currentNote[sensorId] != -1) playNote(0x90,currentNote[sensorId],0);  // stop note avec velocité zero
+           currentNote[sensorId] = gMajeur[distance];
+           codeNote= currentNote[sensorId]%12;
+           octave= currentNote[sensorId]/12-1;
+           sprintf(a,"cm:%d,n:%d %s%d", distance,currentNote[sensorId],aNotesNames[codeNote],octave); 
+           displayL2(a);
+           playNote(0x90,currentNote[sensorId],120);
+         //delay (100);
+          }      
+          
+         else if (conf.midiMode[sensorId] == MIDI_MODE_CHORDS) // mode chords
+          {
+           if (currentNote[sensorId] !=0) playChord(0x90,currentNote[sensorId],0); 
+           currentNote[sensorId] = distance;
+           playChord(0x90,currentNote[sensorId],30);              
+           sprintf(a,"pos:%d,ChordId:%d", distance,currentNote[sensorId]); 
+           displayL2(a);
+           //delay (100);
+          }
+          
+         else if ((conf.midiMode[sensorId] == MIDI_MODE_EX_CTRL_FILTER) || (conf.midiMode[sensorId] == MIDI_MODE_EX_CTRL_RES) || (conf.midiMode[sensorId] == MIDI_MODE_EX_CTRL_VOL)) // mode MIDI Exclusive to control filter, volume, etc...
+          {
+            cm-=6;
+            v = cm*2;
+            if (v>127) v=127;
+            midiControler(v,TabControler[conf.midiMode[sensorId]]);
+           sprintf(a,"pos:%d,V:%d", cm,v); 
+           displayL2(a);
+          }
+         
+
+       }   
+      }
+     else // distance >90, on arrete la note qui joue si il y en a une
+      {
+       if (currentNote[sensorId] != -1) 
+        {
+          if (conf.midiMode[sensorId] == MIDI_MODE_NOTE) playNote(0x80,currentNote[sensorId],0); // stop note avec velocité zero
+          else if (conf.midiMode[sensorId] == MIDI_MODE_CHORDS) playChord(0x80,currentNote[sensorId],0x0);
+          
+          currentNote[sensorId]=-1;
+          currentDistance[sensorId] = -1;
+          displayL2("Jouez ...");   
+         }
+      }
+   }
+
+//********************************
 // la boucle principale
 void loop()
 {
@@ -709,6 +769,8 @@ int codeNote,octave;
      //if (fModeMotion) actionBoutonMotionMode(bouton);
      //else actionBouton(bouton);
     }
+
+ if (iSetupMode != -1) return; // we are in the menu mode
  
  if((fModeMotion||fModeDirection) && (millis()-timerMotion>=5)) //==>>>> should we keep this timer???????????????????????
    {                          
@@ -721,69 +783,10 @@ int codeNote,octave;
  //********************************
  // measure interval
   if(fModeIR && ((millis() - irTimer > 50) ))
-   {
-    int gMajeur[]={DO,RE,MI,FA,SOL,LA,SI,DO+12,RE+12,MI+12,FA+12,SOL+12,LA+12,SI+12,DO+24,RE+24,MI+24,FA+24,SOL+24,LA+24,SI+24,DO+36,RE+36,MI+36,FA+36,SOL+36,LA+36,SI+36,DO+48,RE+48,MI+48,FA+48,SOL+48,LA+48,SI+48,DO+60,RE+60,MI+60,FA+60,SOL+60,LA+60,SI+60};
-    
+   { 
+    sensorDistance(0);
+    sensorDistance(1); // comment this line if you have only 1 sensor for distance measures
     irTimer = millis();
-    float val=analogRead(0);                      // Read ir distance sensor data
-    int distance=6787.0 /(val - 3.0) - 4.0;     // Convert to the distance - cm
-    
-      if (distance < 90)
-      {
-       cm = distance;
-       distance=distance -6; // zero for minimum distance of the cqpteru (usually 6 cm)
-       distance = distance /4;
-       
-       if (distance != currentDistance) // we play new note or chord
-        {
-         currentDistance=distance;
-         
-         if (conf.midiMode == MIDI_MODE_NOTE) 
-          {
-           if (currentNote != -1) playNote(0x90,currentNote,0);  // stop note avec velocité zero
-           currentNote = gMajeur[distance];
-           codeNote= currentNote%12;
-           octave= currentNote/12-1;
-           sprintf(a,"cm:%d,n:%d %s%d", distance,currentNote,aNotesNames[codeNote],octave); 
-           displayL2(a);
-           playNote(0x90,currentNote,0x45);
-         //delay (100);
-          }      
-          
-         else if (conf.midiMode == MIDI_MODE_CHORDS) // mode chords
-          {
-           if (currentNote !=0) playChord(0x90,currentNote,0); 
-           currentNote = distance;
-           playChord(0x90,currentNote,0x45);              
-           sprintf(a,"pos:%d,ChordId:%d", distance,currentNote); 
-           displayL2(a);
-           //delay (100);
-          }
-          
-         else if (conf.midiMode == MIDI_MODE_EX) // mode MIDI Exclusive to control filter, volume, etc...
-          {
-            cm-=6;
-            v = cm*2;
-            if (v>127) v=127;
-            midiControler(v,controler);
-           sprintf(a,"pos:%d,V:%d", cm,v); 
-           displayL2(a);
-          }
-         
-
-       }   
-      }
-     else // distance >90, on arrete la note qui joue si il y en a une
-      {
-       if (currentNote != -1) 
-        {
-          if (conf.midiMode == MIDI_MODE_NOTE) playNote(0x80,currentNote,0); // stop note avec velocité zero
-          else if (conf.midiMode == MIDI_MODE_CHORDS) playChord(0x80,currentNote,0x0);
-          
-          currentNote=-1;
-          currentDistance = -1;
-          displayL2("Jouez ...");   
-         }
-      }
-   }
+   }    
 }
+
