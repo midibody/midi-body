@@ -52,16 +52,25 @@ int fModeDirection = 0;
 // specific I2C addresses may be passed as a parameter below when declaring the MPU6050 object
 // AD0 low = 0x68 (default for InvenSense evaluation board)
 // AD0 high = 0x69
-MPU6050 accelgyro;
+MPU6050 accelgyro1(0x68); //SParkfun MPU9150 & 6050
 
-int16_t ax, ay, az,axDelta,ayDelta,azDelta;
-int16_t axMax,axMin,ayMax,ayMin,azMax,azMin,gzMax,gzMin;
-int16_t gx, gy, gz,gxDelta,gyDelta,gzDelta;
+MPU6050 accelgyro2(0x69); // drotek MPU6050
+
+int16_t axDelta1,ayDelta1,azDelta1;
+int16_t axMax1,axMin1,ayMax1,ayMin1,azMax1,azMin1,gzMax1,gzMin1;
+int16_t gxDelta1,gyDelta1,gzDelta1;
+
+int16_t axDelta2,ayDelta2,azDelta2;
+int16_t axMax2,axMin2,ayMax2,ayMin2,azMax2,azMin2,gzMax2,gzMin2;
+int16_t gxDelta2,gyDelta2,gzDelta2;
+
+int16_t ax, ay, az;
+int16_t gx, gy, gz;
 int16_t mx, my, mz;
 int16_t var_compass;
 
-char previousAx=0;
-char previousAy=0;
+//char previousAx=0;
+//char previousAy=0;
 char previousFB=0;
 
 int cNotes=0;
@@ -89,6 +98,9 @@ int c=0,cMD=0,cResetMD=0;
 #define countChords 5 //=> change if you add chords
 
 int vNote= RE; // default note for snare
+enum {NoteRH_,NoteRV_,NoteLH_,NoteLV_};
+unsigned char tabNote1[]={36,37,38,45};
+unsigned char tabNote2[]={42,46,49,51};
 
 //int notesNames[]={"C","C#",  "D","D#",  "E","F","F#",   "G","G#",    "A","A#",  "B"};
 char * aNotesNames[]={"DO","DO#","RE","RE#","MI","FA","FA#","SOL","SOL#","LA","LA#","SI"};
@@ -119,6 +131,14 @@ struct config_t
 char signature; // we store value 0xAA to check if we read a valid config...
 char midiMode[cMaxSensors];
 int midiControler[cMaxSensors]; // max 127
+char motionSensor1RH;
+char motionSensor1RV;
+char motionSensor1LH;
+char motionSensor1LV;
+char motionSensor2RH;
+char motionSensor2RV;
+char motionSensor2LH;
+char motionSensor2LV;
 } conf;
 
 unsigned int currentDistance[cMaxSensors] = {-1,-1};
@@ -133,21 +153,31 @@ int motionMode;
 unsigned long timerButtons;                               // create a time variable
 unsigned long timerMotion;
 unsigned long timerLastDrum=0;
-unsigned long lastAzNegTime=0xFFFFFFFF;
-unsigned long lastAzPlusTime=0xFFFFFFFF;
-unsigned long tAzP=0;
-unsigned long tAzM=0;
-unsigned long tStartNote=0;
+unsigned long timerLastNoteStart=0;
+//unsigned long lastAzNegTime=0xFFFFFFFF;
+//unsigned long lastAzPlusTime=0xFFFFFFFF;
+
+int16_t lastAzMin1=0;
+unsigned long tAzP1=0;
+unsigned long tAzM1=0;
+unsigned long tStartNote1=0;
+char lastNote1;
+
+int16_t lastAzMin2=0;
+unsigned long tAzP2=0;
+unsigned long tAzM2=0;
+unsigned long tStartNote2=0;
+char lastNote2;
+
 int16_t accelSensitivity=2000;
 unsigned int azimuth=0;
 unsigned int velocity;
-int lastNote;
+
 boolean up= true;                                 // create a boolean variable 
 unsigned long irTimer ;                           // timer for managing the sensor reading flash rate
-boolean fRight=true;
+boolean fRight1=true;
+boolean fRight2=true;
 boolean fVertical=false;
-
-int16_t lastAzMin=0;
 
 #define MOTION_MODE_0  0
 #define MOTION_MODE_1  1
@@ -162,10 +192,12 @@ char * azimuthHeadings[] = { "E", "NE", "N", "NW", "W", "SW", "S", "SE" };
 //*********************
 void calibrate()
 {
-accelgyro.getMotion9(&ax, &ay, &az, &gx, &gy, &gz, &mx, &my, &mz);
-axDelta=-ax; ayDelta=-ay; azDelta=-az;
+accelgyro1.getMotion9(&ax, &ay, &az, &gx, &gy, &gz, &mx, &my, &mz);
+axDelta1=-ax; ayDelta1=-ay; azDelta1=-az;
 //gxDelta=-gx; gyDelta=-gy; gzDelta=-gz; //no need
 
+accelgyro2.getMotion9(&ax, &ay, &az, &gx, &gy, &gz, &mx, &my, &mz);
+axDelta2=-ax; ayDelta2=-ay; azDelta2=-az;
 }
 
 //***********************
@@ -199,29 +231,40 @@ void initializeMotionSensor()
       // join I2C bus (I2Cdev library doesn't do this automatically)
     Wire.begin();
 
-    displayL1("Init motion...");
-    accelgyro.initialize();
-
-    accelgyro.setMotionDetectionThreshold(1);
-    accelgyro.setMotionDetectionDuration(1);
-    accelgyro.setZeroMotionDetectionThreshold(10);
-    accelgyro.setZeroMotionDetectionDuration(1);
+    accelgyro1.initialize();
+    accelgyro1.setMotionDetectionThreshold(1);
+    accelgyro1.setMotionDetectionDuration(1);
+    accelgyro1.setZeroMotionDetectionThreshold(10);
+    accelgyro1.setZeroMotionDetectionDuration(1);
+    accelgyro1.setFullScaleAccelRange(MPU6050_ACCEL_FS_8);
+    accelgyro1.setDLPFMode(0x06);// low pass filter
+    if (accelgyro1.testConnection()) displayL1("MPU 1 Cnx OK"); else displayL1("MPU 1 Cnx FAILED!");
+    //sprintf(a,"DeviceID=%d",accelgyro1.getDeviceID()); displayL2(a);
+    delay(1000);
+    accelgyro1.setIntEnabled(0x40); //useless
     
-    // verify connection
-    displayL1("Chk motion sens.");
-    if (accelgyro.testConnection()) displayL1("MPU9150 Cnx OK"); else displayL1("MPU9150 Cnx FAILED!");
+    accelgyro2.initialize();
+    accelgyro2.setMotionDetectionThreshold(1);
+    accelgyro2.setMotionDetectionDuration(1);
+    accelgyro2.setZeroMotionDetectionThreshold(10);
+    accelgyro2.setZeroMotionDetectionDuration(1);
+    accelgyro2.setFullScaleAccelRange(MPU6050_ACCEL_FS_8);
+    accelgyro2.setDLPFMode(0x06);// low pass filter
+
+    if (accelgyro2.testConnection()) displayL1("MPU 2 Cnx OK"); else displayL1("MPU 2 Cnx FAILED!");
+    //sprintf(a,"DeviceID=%d",accelgyro1.getDeviceID()); displayL2(a);
+    delay(1000);
+    accelgyro2.setIntEnabled(0x40); //useless
+
+    calibrate();
 
     //attachInterrupt(0, acceleroInterrupt, RISING);
-      
-    accelgyro.setIntEnabled(0x40);
     //accelgyro.setIntEnabled(MPU6050_INTERRUPT_FF_BIT|MPU6050_INTERRUPT_MOT_BIT|MPU6050_INTERRUPT_ZMOT_BIT);
     //m=accelgyro.getInterruptMode();
     //sprintf(a,"InterruptMode = %d\t",m); Serial.print(a);
     //accelgyro.setIntEnabled(MPU6050_INTERRUPT_FF_BIT);
     //accelgyro.setIntEnabled(MPU6050_INTERRUPT_ZMOT_BIT);
-
-    calibrate();
-}
+ }
 
 
 //**************************************
@@ -229,7 +272,7 @@ void setup()
 //**************************************
 {
 initLcd();
-displayL1("MIDI Body V1");
+displayL1("Initializing..."); delay(1000);
 
 pinMode(led, OUTPUT);
 pinMode(SensorDirection_pin1, INPUT);
@@ -238,7 +281,7 @@ pinMode(SensorDirection_pin2, INPUT);
 Serial.begin(31250); // midi port speed is 31250
 loadConfig();
 initializeMotionSensor();
-displayL1("Ready"); displayL2("Move your body!");
+displayL1("MIDI Body Ready"); displayL2("Move your body!");
 delay(1000); // just to let time to show the welco,e text before it is overwritten
 }
 
@@ -281,19 +324,14 @@ void actionBoutonMotionMode (int bouton)
 int iSetupMode = -1;
 int iParam=-1;
 // list of menu level 1
-#define setupMode_Sensor1Mode 0
-#define setupMode_Sensor2Mode 1
-#define setupMode_MotionSensor 2
-#define setupMode_QuitSetup 3 // should always be the last index
-
-
+enum { setupMode_Sensor1Mode, setupMode_Sensor2Mode, setupMode_MotionSensor1RH, setupMode_MotionSensor1RV, setupMode_MotionSensor1LH, setupMode_MotionSensor1LV, setupMode_QuitSetup}; // setupMode_QuitSetup should always be the last index
 
 // labels for menu level 1
-#define cParam_DistSensorMode 5 //=> put alays the same amount as values in the array below
+char *label_SetupMode[]={"Sensor 1 mode","Sensor 2 mode","Drum1 RH","Drum1 RV","Drum1 LH","Drum1 LV","Exit Config Mode"};
 
-char *label_SetupMode[]={"Sensor 1 mode","Sensor 2 mode","Motion Sensor", "Exit Config Mode"};
+#define cParam_DistSensorMode 5 //=> put alays the same amount as values in the array below
 char *label_DistSensorModeParams[]={"Single Note","Chords","Ctrl Filter Freq", "Ctrl Filter Reso", "Ctrl Volume"};
-int TabControler[]={0,0,74,42,7}; //=> CAREFUL: the list mus be synched with the label_DistSensorModeParams. We put 2 zeros first to simplify the management of indexes
+int TabControler[]={0,0,74,42,7}; //=> CAREFUL: the list must be synched with the label_DistSensorModeParams. We put 2 zeros first to simplify the management of indexes
 
 #define MIDI_MODE_NOTE 0
 #define MIDI_MODE_CHORDS 1
@@ -317,7 +355,7 @@ void actionBoutonSetup (int bouton)
      {       iSetupMode++; if (iSetupMode>setupMode_QuitSetup) iSetupMode = 0;     }
     else iSetupMode = 0;
     displayL1(label_SetupMode[iSetupMode]);
-    displayL2("Change param=>S2");
+    displayL2("To update: S2");
     iParam=-1;
    }
 
@@ -328,7 +366,6 @@ void actionBoutonSetup (int bouton)
        iSetupMode = -1;
        displayL1("Saving Config...");displayL2("");
        saveConfig();
-       //loadConfig();
        delay(1000);displayL1("Ready");
       }
       
@@ -337,16 +374,6 @@ void actionBoutonSetup (int bouton)
        if (iParam!=-1) {iParam++ ; if (iParam>=cParam_DistSensorMode) iParam = 0; } else iParam = 0;
        sprintf(a,"%s",label_DistSensorModeParams[iParam]); displayL2(a);
        conf.midiMode[0]=iParam;
-/*       switch (iParam) {
-        case 0: conf.midiMode[0]= MIDI_MODE_NOTE; break;
-        case 1: conf.midiMode[0]= MIDI_MODE_CHORDS; break;
-        case 2: case 3: case 4:
-         conf.midiMode[0]= MIDI_MODE_EX;
-         conf.midiControler[0] = iParam-2; 
-         
-        break; //=> warning: by changing the order of the labels for the motion mode it breaks this index compuutation... not a nice code here 
-        }*/
-        
       }
 
      else if (iSetupMode == setupMode_Sensor2Mode) // select 
@@ -354,24 +381,32 @@ void actionBoutonSetup (int bouton)
        if (iParam!=-1) {iParam++ ; if (iParam>=cParam_DistSensorMode) iParam = 0; } else iParam = 0;
        sprintf(a,"%s",label_DistSensorModeParams[iParam]); displayL2(a);
        conf.midiMode[1]=iParam;
-/*       switch (iParam) {
-        case 0: conf.midiMode[1]= MIDI_MODE_NOTE; break;
-        case 1: conf.midiMode[1]= MIDI_MODE_CHORDS; break;
-        case 2: case 3: case 4:
-         conf.midiMode[0]= MIDI_MODE_EX;
-         conf.midiControler[1] = iParam-2; 
-        break; //=> warning: by changing the order of the labels for the motion mode it breaks this index compuutation... not a nice code here        
-        }*/
-        
-      }      
-
-/*     else if (iSetupMode == setupMode_MidiCtrl) // select midi controller number
-      {
-       if (iParam!=-1) {iParam++ ; if (iParam>=cMidiControler) iParam = 0; } else iParam = 0;
-       sprintf(a,"%s",label_MidiControler[iParam]); displayL2(a);
-       conf.midiControler[0]=iParam;
-      }*/
-   }  
+      }            
+      
+     else if (iSetupMode == setupMode_MotionSensor1RH)       {       iParam= tabNote1[NoteRH_];       sprintf(a,"Note: %d",iParam); displayL2(a);      }      
+     else if (iSetupMode == setupMode_MotionSensor1RV)       {       iParam= tabNote1[NoteRV_];       sprintf(a,"Note: %d",iParam); displayL2(a);      }   
+     else if (iSetupMode == setupMode_MotionSensor1LH)       {       iParam= tabNote1[NoteLH_];       sprintf(a,"Note: %d",iParam); displayL2(a);      }   
+     else if (iSetupMode == setupMode_MotionSensor1LV)       {       iParam= tabNote1[NoteLV_];       sprintf(a,"Note: %d",iParam); displayL2(a);      }         
+   }// end button 2
+   
+   else if (bouton == 3) // Plus button
+   {
+    if (iSetupMode == setupMode_MotionSensor1RH)          {      conf.motionSensor1RH=tabNote1[NoteRH_]= ++iParam;       sprintf(a,"Note: %d",iParam); displayL2(a);     } 
+    else if (iSetupMode == setupMode_MotionSensor1RV)     {      conf.motionSensor1RV=tabNote1[NoteRV_]= ++iParam;       sprintf(a,"Note: %d",iParam); displayL2(a);     } 
+    else if (iSetupMode == setupMode_MotionSensor1LH)     {      conf.motionSensor1LH=tabNote1[NoteLH_]= ++iParam;       sprintf(a,"Note: %d",iParam); displayL2(a);     } 
+    else if (iSetupMode == setupMode_MotionSensor1LV)     {      conf.motionSensor1LV=tabNote1[NoteLV_]= ++iParam;       sprintf(a,"Note: %d",iParam); displayL2(a);     } 
+   }
+   
+   
+   else if (bouton == 4) // Decrement button
+   {
+    if (iSetupMode == setupMode_MotionSensor1RH)          {      if (iParam>0) conf.motionSensor1RH=tabNote1[NoteRH_]= --iParam;      sprintf(a,"Note: %d",iParam); displayL2(a);    } 
+    else if (iSetupMode == setupMode_MotionSensor1RV)     {      if (iParam>0) conf.motionSensor1RV=tabNote1[NoteRV_]= --iParam;      sprintf(a,"Note: %d",iParam); displayL2(a);    } 
+    else if (iSetupMode == setupMode_MotionSensor1LH)     {      if (iParam>0) conf.motionSensor1LH=tabNote1[NoteLH_]= --iParam;      sprintf(a,"Note: %d",iParam); displayL2(a);    } 
+    else if (iSetupMode == setupMode_MotionSensor1LV)     {      if (iParam>0) conf.motionSensor1LV=tabNote1[NoteLV_]= --iParam;      sprintf(a,"Note: %d",iParam); displayL2(a);    }     
+   }
+   
+   
  }
 }
 
@@ -386,12 +421,11 @@ void loadConfig()
 {
 eeprom_read_block((void*)&conf, (void*)0, sizeof(conf));
 
- if (conf.signature !=91)
+ if (conf.signature !=92) // we read shit
   {
    displayL1("No config found..."); displayL2("Default Config"); delay(1000);
    setDefaultConfig();
    saveConfig();
-   // need to set defaults here
   }
  else // the EEPROM contains a valid config
   {
@@ -400,31 +434,31 @@ eeprom_read_block((void*)&conf, (void*)0, sizeof(conf));
     
     displayL1("Dist sensor 2:");
     displayL2(label_DistSensorModeParams[conf.midiMode[1]]); delay(1000);
-
-//    controler= TabControler[conf.midiControler[0]];// in the conf we dont store the value but the index
-//   sprintf(a,"Sensor1:%s",label_NotesModeParams[conf.midiMode[0]]); displayL2(a); delay(1000);
-//   sprintf(a,"%s",label_MidiControler[conf.midiControler[0]]); displayL2(a); delay(1000);
+    
+    tabNote1[NoteRH_]= conf.motionSensor1RH;
+    tabNote1[NoteRV_]= conf.motionSensor1RV;
+    tabNote1[NoteLH_]= conf.motionSensor1LH;
+    tabNote1[NoteLV_]= conf.motionSensor1LV;
   }
 }
 
 //*********************************
 void setDefaultConfig()
 {
-  conf.signature=91;
+  conf.signature=92;
   conf.midiMode[0] = MIDI_MODE_NOTE;
   conf.midiMode[1] = MIDI_MODE_EX_CTRL_FILTER;
-//  conf.midiControler[0]=0; // useless variable
-//  conf.midiControler[1]=0; // useless variable
+  conf.motionSensor1RH=tabNote1[NoteRH_];
+  conf.motionSensor1RV=tabNote1[NoteRV_];
+  conf.motionSensor1LH=tabNote1[NoteLH_];
+  conf.motionSensor1LV=tabNote1[NoteLV_];  
 }
 
  
 //*********************************
 void playChord(int cmd, int pitch, int velocity) {
   int shift;
-  
-pitch = pitch;
 
-//30,32,34,35,37,39,41, 42,44,46,47,49,51,53, 54,56,58,59,61,63,65, 66,68,70,71,73,75,77, 78,80,82,83,85,87,89, 90,92,94,95,97,99,101, 30,32,33,35,37,40, 42,44,45,47,49,52, 54};
 if (pitch >= countChords) return;
 
  shift= 24;
@@ -483,46 +517,44 @@ else
 }
 
 //*******************************
-void actionMotion()
+void actionMotion1()
 {
-char a[32];// should be 17 max...we keep more, not clean but good enough
+//char a[32];// should be 17 max...we keep more, not clean but good enough
 char aa[17];
 char b[16];
 unsigned long t;
-int fDisplay = 0;
 
 //#define minBetweenDrum_  100
-
 //if (timerLastDrum + minBetweenDrum_ > millis()) return;
 //timerLastDrum=millis();
 
-accelgyro.getMotion9(&ax, &ay, &az, &gx, &gy, &gz, &mx, &my, &mz);
-if (az<lastAzMin) lastAzMin=az; 
+accelgyro1.getMotion9(&ax, &ay, &az, &gx, &gy, &gz, &mx, &my, &mz);
 
-ax+=axDelta; ay+=ayDelta; az+=azDelta; gx+=gxDelta; gy+=gyDelta; gz+=gzDelta;
+if (az<lastAzMin1) lastAzMin1=az; 
 
-if ((az>0) && (az>azMax)) { azMax= az; } //sprintf (a,"az max=%d",azMax); displayL1(a);}
-if ((az<0) && (az<azMin)) { azMin= az; }; //sprintf (a,"az min=%d",azMin); displayL2(a);}
+ax+=axDelta1; ay+=ayDelta1; az+=azDelta1; gx+=gxDelta1; gy+=gyDelta1; gz+=gzDelta1;
+
+if ((az>0) && (az>azMax1)) { azMax1= az; } //sprintf (a,"az max=%d",azMax); displayL1(a);}
+if ((az<0) && (az<azMin1)) { azMin1= az; }; //sprintf (a,"az min=%d",azMin); displayL2(a);}
 //if ((gz>0) && (gz>gzMax)) { gzMax= gz; sprintf (a,"gz max=%d",gzMax); displayL1(a);}
 //if ((gz<0) && (gz<gzMin)) { gzMin= gz; sprintf (a,"gz min=%d",gzMin); displayL2(a);}
 
-if (gz>20000) fRight=false;
-else if (gz<-20000) fRight=true;
+if (gz>20000) fRight1=false;
+else if (gz<-20000) fRight1=true;
 
 t=millis();
 
 // added for synth who need a note off. electronic drums usually dont.
-if (tStartNote && (t - tStartNote >100)) // there is a Note ON since more than xxx milli -> we stop it.
+if (tStartNote1 && (t - tStartNote1 >100)) // there is a Note ON since more than xxx milli -> we stop it.
  {
   //midiNoteOff(midiChannelDrum,lastNote,0x45); // note on & off
-  tStartNote = 0;
+  tStartNote1 = 0;
  }
 
-if ((az<-accelSensitivity) && !tAzM) // we detect a start of move down -negative az
+if ((az<-accelSensitivity) && !tAzM1) // we detect a start of move down -negative az
  {
-   tAzM=t;
+   tAzM1=t;
    cMD++;
-   fDisplay=0;
   }
 /*
 else if (tAzM && (t-tAzM > 200)) // we reset move down time to ignore the previous move - pas au point...
@@ -533,149 +565,123 @@ else if (tAzM && (t-tAzM > 200)) // we reset move down time to ignore the previo
  }
 */
 
-if ((az>accelSensitivity) && !tAzP && tAzM) // we detect a decceleration after an accel Negative (a tap down)
+if ((az>accelSensitivity) && !tAzP1 && tAzM1) // we detect a decceleration after an accel Negative (a tap down)
  {
   //computeAzimuth();  //{ "E", "NE", "N", "NW", "W", "SW", "S", "SE" };
 
-  if (lastAzMin==-32768) lastAzMin=-32767; // to correct the extreme case cuasing a bug...
+  if (lastAzMin1==-32768) lastAzMin1=-32767; // to correct the extreme case cuasing a bug...
   
-  if (ay<-2000) fVertical=false;
-  else fVertical=true;
+  fVertical=(ay<-2000)?false:true;
   
-  velocity=map(-lastAzMin,-azMax,-azMin,0,126); // set the note velocity depending on negative accel. int16_t is from -32678 to +32767
-  if (fRight) 
+  velocity=map(-lastAzMin1,-azMax1,-azMin1,0,126); // set the note velocity depending on negative accel. int16_t is from -32678 to +32767
+  if (fRight1) 
    {
-    if (fVertical) midiNoteOn(midiChannelDrum,lastNote= 37,velocity); 
-    else  midiNoteOn(midiChannelDrum,lastNote= DO,velocity); //kick
+    if (fVertical) midiNoteOn(midiChannelDrum,lastNote1= tabNote1[NoteRV_],velocity); //37
+    else  midiNoteOn(midiChannelDrum,lastNote1= tabNote1[NoteRH_],velocity); //kick 36
    }
   else 
    {
-     if (fVertical) midiNoteOn(midiChannelDrum,lastNote=49,velocity);      // crash:49
-     else midiNoteOn(midiChannelDrum,lastNote= vNote,velocity); 
+     if (fVertical) midiNoteOn(midiChannelDrum,lastNote1= tabNote1[NoteLV_],velocity);      // crash:49
+     else midiNoteOn(midiChannelDrum,lastNote1= tabNote1[NoteLH_],velocity); //symbal
    }
 
-  tStartNote = t;
+  tStartNote1 = t;
   cNotes++;
-  tAzM=0;  
-  //lastAzMin=0;
+  tAzM1=0;  
+  //lastAzMin=0;  //   sprintf(a,"N=%d MD=%d %d",cNotes,cMD,fRight); displayL1(a); 
+   aa[0]=(fRight1)?'R':'L';    aa[1]=(fVertical)?'V':'H';   aa[2]=0;
 
-  fDisplay=0;
-//   sprintf(a,"N=%d MD=%d %d",cNotes,cMD,fRight); displayL1(a); 
-   aa[0]=(fRight)?'R':'L';    aa[1]=(fVertical)?'V':'H';   aa[2]=0;
-   
-   sprintf(a,"%d %d",azMin,azMax); displayL1(a);  
-   sprintf(a,"%s %d %d %d",aa,lastNote,velocity,ay); displayL2(a);
-
-   lastAzMin=32767;
-
+  if (iSetupMode == -1) // we dont distrub the menu text wile editing it...
+   {
+   sprintf(a,"%d %d",azMin1,azMax1); displayL1(a);  
+   sprintf(a,"%s %d %d %d",aa,lastNote1,velocity,ay); displayL2(a);
+   }
+   lastAzMin1=32767;
  }
-
- if (fDisplay==1)    
-  {
-//   if (  tStartNote == t) lastAzMin=0;
-  }
-   
-
 }
 
-
 //*******************************
-void actionMotionOld2()
+void actionMotion2()
 {
-char a[32];
+//char a[32];// should be 17 max...we keep more, not clean but good enough
+char aa[17];
 char b[16];
-#define minBetweenDrum_  100
+unsigned long t;
 
+//#define minBetweenDrum_  100
 //if (timerLastDrum + minBetweenDrum_ > millis()) return;
 //timerLastDrum=millis();
 
-accelgyro.getMotion9(&ax, &ay, &az, &gx, &gy, &gz, &mx, &my, &mz);
-ax+=axDelta; ay+=ayDelta; az+=azDelta; gx+=gxDelta; gy+=gyDelta; gz+=gzDelta;
+accelgyro2.getMotion9(&ax, &ay, &az, &gx, &gy, &gz, &mx, &my, &mz);
 
-if ((az>0) && (az>azMax)) { azMax= az; sprintf (a,"az max=%d",azMax); displayL1(a);}
-if ((az<0) && (az<azMin)) { azMin= az; sprintf (a,"az min=%d",azMin); displayL2(a);}
+if (az<lastAzMin2) lastAzMin2=az; 
 
+ax+=axDelta2; ay+=ayDelta2; az+=azDelta2; gx+=gxDelta2; gy+=gyDelta2; gz+=gzDelta2;
 
-if (az<-3000) 
+if ((az>0) && (az>azMax2)) { azMax2= az; } //sprintf (a,"az max=%d",azMax); displayL2(a);}
+if ((az<0) && (az<azMin2)) { azMin2= az; }; //sprintf (a,"az min=%d",azMin); displayL2(a);}
+//if ((gz>0) && (gz>gzMax)) { gzMax= gz; sprintf (a,"gz max=%d",gzMax); displayL1(a);}
+//if ((gz<0) && (gz<gzMin)) { gzMin= gz; sprintf (a,"gz min=%d",gzMin); displayL2(a);}
+
+if (gz>20000) fRight2=false;
+else if (gz<-20000) fRight2=true;
+
+t=millis();
+
+// added for synth who need a note off. electronic drums usually dont.
+if (tStartNote2 && (t - tStartNote2 >100)) // there is a Note ON since more than xxx milli -> we stop it.
  {
-  if (lastAzPlusTime+200<millis()) //detect note at deceleraton just after accel
-   {
-  playNote(0x90,SOL,0x45); delay (10); playNote(0x80,SOL,0x45);
+  //midiNoteOff(midiChannelDrum,lastNote,0x45); // note on & off
+  tStartNote2 = 0;
+ }
 
-  sprintf(a,"c=%d az=%d",++cNotes,az); displayL1(a);
-  sprintf(a,"%l",millis()); displayL2(a);
-  lastAzNegTime=0xFFFFFFFF;
+if ((az<-accelSensitivity) && !tAzM2) // we detect a start of move down -negative az
+ {
+   tAzM2=t;
+   cMD++;
   }
-
-   else lastAzNegTime= millis();
- }
- 
-else if (az>3000) 
+/*
+else if (tAzM && (t-tAzM > 200)) // we reset move down time to ignore the previous move - pas au point...
  {
-  if (lastAzNegTime+200<millis()) //detect note at deceleraton just after accel
+   cResetMD++;
+   tAzM=0; 
+   fDisplay=1;
+ }
+*/
+
+if ((az>accelSensitivity) && !tAzP2 && tAzM2) // we detect a decceleration after an accel Negative (a tap down)
+ {
+  //computeAzimuth();  //{ "E", "NE", "N", "NW", "W", "SW", "S", "SE" };
+
+  if (lastAzMin2==-32768) lastAzMin2=-32767; // to correct the extreme case cuasing a bug...
+  
+  fVertical=(ay<-2000)?false:true;
+  
+  velocity=map(-lastAzMin2,-azMax2,-azMin2,0,126); // set the note velocity depending on negative accel. int16_t is from -32678 to +32767
+  if (fRight2) 
    {
-  playNote(0x90,DO,0x45); delay (10); playNote(0x80,DO,0x45);
-
-  sprintf(a,"c=%d az=%d",++cNotes,az); displayL1(a);
-  lastAzPlusTime=0xFFFFFFFF;
+    if (fVertical) midiNoteOn(midiChannelDrum,lastNote2= tabNote2[NoteRV_],velocity); //37
+    else  midiNoteOn(midiChannelDrum,lastNote2= tabNote2[NoteRH_],velocity); //kick 36
    }
-  //timerLastDrum=millis();
-  else lastAzPlusTime= millis();  
+  else 
+   {
+     if (fVertical) midiNoteOn(midiChannelDrum,lastNote2= tabNote2[NoteLV_],velocity);      // crash:49
+     else midiNoteOn(midiChannelDrum,lastNote2= tabNote2[NoteLH_],velocity); //symbal
+   }
+
+  tStartNote2 = t;
+  cNotes++;
+  tAzM2=0;  
+  //lastAzMin=0;  //   sprintf(a,"N=%d MD=%d %d",cNotes,cMD,fRight); displayL1(a); 
+   aa[0]=(fRight2)?'R':'L';    aa[1]=(fVertical)?'V':'H';   aa[2]=0;
+
+  if (iSetupMode == -1) // we dont distrub the menu text wile editing it...
+   {
+   sprintf(a,"%d %d",azMin2,azMax2); displayL1(a);  
+   sprintf(a,"%s %d %d %d",aa,lastNote2,velocity,ay); displayL2(a);
+   }
+   lastAzMin2=32767;
  }
-
-
-}
-
-//*******************************
-void actionMotionOld()
-{
-char a[32];
-char b[16];
-
-accelgyro.getMotion9(&ax, &ay, &az, &gx, &gy, &gz, &mx, &my, &mz);
-ax+=axDelta; ay+=ayDelta; az+=azDelta; gx+=gxDelta; gy+=gyDelta; gz+=gzDelta;
-
-//az -=16000; // is at this value when nothing moves...
-
-//kick on ax
-
-a[0]=0;
-//strcat (a,displayVal(b,ax));
-
-displayVal(b,ax);
-if ((previousAx=='+') && (b[0]=='-'))
- {
-  playNote(0x80,SOL,0);
-  playNote(0x90,DO,0x45);
-  previousAx='-';
- }
-else if ((previousAx=='-') && (b[0]=='+'))
- {
-  playNote(0x80,DO,0);
-  playNote(0x90,SOL,0x45);
-  previousAx='+';
- }
-
-else previousAx=b[0];
-
-displayVal(b,ay);
-if ((previousAy=='+') && (b[0]=='-'))
- {
-  playNote(0x80,SIb,0);
-  playNote(0x90,SIb,0x45);
-  previousAy='-';
- }
-else if ((previousAy=='-') && (b[0]=='+'))
- {
-  playNote(0x80,SIb,0);
-  playNote(0x90,SIb,0x45);
-  previousAy='+';
- }
-
-else previousAy=b[0];
-
-
-displayL2(b);
 }
 
 
@@ -694,33 +700,38 @@ int gMajeur[]={DO,RE,MI,FA,SOL,LA,SI,DO+12,RE+12,MI+12,FA+12,SOL+12,LA+12,SI+12,
       if (distance < 90)
       {
        cm = distance;
-       distance=distance -6; // zero for minimum distance of the cqpteru (usually 6 cm)
+       distance=distance -6; // zero for minimum distance of the sensor (usually 6 cm)
        distance = distance /4;
-       
+
        if (distance != currentDistance[sensorId]) // we play new note or chord
         {
-         currentDistance[sensorId]=distance;
-         
          if (conf.midiMode[sensorId] == MIDI_MODE_NOTE) 
           {
-           if (currentNote[sensorId] != -1) playNote(0x90,currentNote[sensorId],0);  // stop note avec velocité zero
+           if (millis()-timerLastNoteStart<100) return; // to get slower BPM in the notes
+           
+           if (currentNote[sensorId] != -1) playNote(0x80,currentNote[sensorId],0);  // stop previous note
+           
            currentNote[sensorId] = gMajeur[distance];
            codeNote= currentNote[sensorId]%12;
            octave= currentNote[sensorId]/12-1;
-           sprintf(a,"cm:%d,n:%d %s%d", distance,currentNote[sensorId],aNotesNames[codeNote],octave); 
+           //sprintf(a,"cm:%d,n:%d %s%d", distance,currentNote[sensorId],aNotesNames[codeNote],octave); 
+           sprintf(a,"Playing:%s%d", aNotesNames[codeNote],octave); 
+           
            displayL2(a);
-           playNote(0x90,currentNote[sensorId],120);
-         //delay (100);
+           playNote(0x90,currentNote[sensorId],100);
+           timerLastNoteStart = millis();
           }      
           
          else if (conf.midiMode[sensorId] == MIDI_MODE_CHORDS) // mode chords
           {
-           if (currentNote[sensorId] !=0) playChord(0x90,currentNote[sensorId],0); 
+           if (millis()-timerLastNoteStart<100) return;
+
+            if (currentNote[sensorId] !=-1) playChord(0x80,currentNote[sensorId],0); // stop last chord currently playing
            currentNote[sensorId] = distance;
-           playChord(0x90,currentNote[sensorId],30);              
+           playChord(0x90,currentNote[sensorId],40);              
            sprintf(a,"pos:%d,ChordId:%d", distance,currentNote[sensorId]); 
            displayL2(a);
-           //delay (100);
+           timerLastNoteStart = millis();
           }
           
          else if ((conf.midiMode[sensorId] == MIDI_MODE_EX_CTRL_FILTER) || (conf.midiMode[sensorId] == MIDI_MODE_EX_CTRL_RES) || (conf.midiMode[sensorId] == MIDI_MODE_EX_CTRL_VOL)) // mode MIDI Exclusive to control filter, volume, etc...
@@ -729,23 +740,25 @@ int gMajeur[]={DO,RE,MI,FA,SOL,LA,SI,DO+12,RE+12,MI+12,FA+12,SOL+12,LA+12,SI+12,
             v = cm*2;
             if (v>127) v=127;
             midiControler(v,TabControler[conf.midiMode[sensorId]]);
-           sprintf(a,"pos:%d,V:%d", cm,v); 
+           //sprintf(a,"pos:%d,V:%d", cm,v); 
+           sprintf(a,"Midi Control=%d",v);
            displayL2(a);
           }
          
-
-       }   
+         currentDistance[sensorId]=distance;
+       } // end distance changed       
       }
+      
      else // distance >90, on arrete la note qui joue si il y en a une
       {
        if (currentNote[sensorId] != -1) 
         {
           if (conf.midiMode[sensorId] == MIDI_MODE_NOTE) playNote(0x80,currentNote[sensorId],0); // stop note avec velocité zero
           else if (conf.midiMode[sensorId] == MIDI_MODE_CHORDS) playChord(0x80,currentNote[sensorId],0x0);
-          
+          timerLastNoteStart=0;
           currentNote[sensorId]=-1;
           currentDistance[sensorId] = -1;
-          displayL2("Jouez ...");   
+          displayL2("Move your body!");   
          }
       }
    }
@@ -769,17 +782,20 @@ int codeNote,octave;
      //if (fModeMotion) actionBoutonMotionMode(bouton);
      //else actionBouton(bouton);
     }
-
- if (iSetupMode != -1) return; // we are in the menu mode
  
  if((fModeMotion||fModeDirection) && (millis()-timerMotion>=5)) //==>>>> should we keep this timer???????????????????????
    {                          
-    if (fModeMotion) actionMotion();
+    if (fModeMotion) 
+     {
+       actionMotion1();
+       actionMotion2();
+     }
     if (fModeDirection) actionDirection();
     timerMotion = millis();
     }
  
-
+ if (iSetupMode != -1) return; // we are in the menu mode
+ 
  //********************************
  // measure interval
   if(fModeIR && ((millis() - irTimer > 50) ))
