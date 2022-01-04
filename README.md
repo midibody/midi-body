@@ -1,4 +1,4 @@
 midi-body
 =========
 
-Play music with ypur body
+Play music with your body
